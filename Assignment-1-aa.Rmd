@@ -1,0 +1,298 @@
+---
+title: "Assignment-1"
+author: Anil Akyildirim, John K. Hancock, John Suh, Emmanuel
+date: "2/12/2020"
+output:
+  html_document:
+    code_download: yes
+    code_folding: hide
+    highlight: pygments
+    number_sections: yes
+    theme: flatly
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+## Introduction
+
+In this assignment, we are tasked to explore, analyze and model a major league baseball dataset which contains around 2000 records where each record presents a baseball team from 1871 to 2006. Each observation provides the perforamce of the team for that particular year with all the statistics for the performance of 162 game season. The problem statement for the main objective is that "Can we predict the number of wins for the team with the given attributes of each record?". In order to provide a solution for the problem, our goal is to build a linear regression model on the training data that creates this prediction. 
+
+### About the Data
+
+The data set are provided in csv format as moneyball-evaluation-data and moneyball-training-data where we will explore, preperate and create our model with the training data and further test the model with the evaluation data. Below is short description of the variables within the datasets.
+
+**INDEX: Identification Variable(Do not use)
+
+**TARGET_WINS: Number of wins
+
+**TEAM_BATTING_H : Base Hits by batters (1B,2B,3B,HR)
+
+**TEAM_BATTING_2B: Doubles by batters (2B)
+
+**TEAM_BATTING_3B: Triples by batters (3B)
+
+**TEAM_BATTING_HR: Homeruns by batters (4B)
+
+**TEAM_BATTING_BB: Walks by batters
+
+**TEAM_BATTING_HBP: Batters hit by pitch (get a free base)
+
+**TEAM_BATTING_SO: Strikeouts by batters
+
+**TEAM_BASERUN_SB: Stolen bases
+
+**TEAM_BASERUN_CS: Caught stealing
+
+**TEAM_FIELDING_E: Errors
+
+**TEAM_FIELDING_DP: Double Plays
+
+**TEAM_PITCHING_BB: Walks allowed
+
+**TEAM_PITCHING_H: Hits allowed
+
+**TEAM_PITCHING_HR: Homeruns allowed
+
+**TEAM_PITCHING_SO: Strikeouts by pitchers
+
+## Data Exploration
+
+### Descriptive Statistics
+
+```{r}
+# load libraries
+library(ggplot2)
+library(ggcorrplot)
+library(psych)
+library(statsr)
+library(dplyr)
+library("PerformanceAnalytics")
+library(tidyr)
+library(reshape2)
+```
+
+```{r}
+# Load data sets
+
+baseball_eva <- read.csv("https://raw.githubusercontent.com/anilak1978/data621/master/moneyball-evaluation-data.csv")
+baseball_train <- read.csv("https://raw.githubusercontent.com/anilak1978/data621/master/moneyball-training-data.csv")
+
+```
+
+
+We can start exploring our training data set by looking at basic descriptive statistics. 
+
+```{r}
+# look at training dataset structure
+str(baseball_train)
+
+```
+
+We have 2276 observations and 17 variables. All of our variables are integer type as expected.
+
+```{r}
+# look at descriptive statistics
+metastats <- data.frame(describe(baseball_train))
+metastats <- tibble::rownames_to_column(metastats, "STATS")
+metastats["pct_missing"] <- round(metastats["n"]/2276, 3)
+head(metastats)
+
+```
+
+With the descriptive statistics, we are able to see mean, standard deviation, median, min, max values and percentage of each missing value of each variable. For example, when we look at TEAM_BATTING_H, we see that average 80 Base hits by batters, with standard deviation of 15, median of 82 with maximum base hits of 146. 
+
+
+```{r}
+# Look for missing values
+colSums(is.na(baseball_train))
+
+```
+
+```{r}
+# Percentage of missing values
+missing_values <- metastats %>%
+  filter(pct_missing < 1) %>%
+  select(STATS, pct_missing) %>%
+  arrange(pct_missing)
+
+missing_values
+
+
+```
+
+When we look at the missing values within the training data set, we see that proportionaly against the total observations, TEAM_BATTING_HBP and TEAM_BESARUN_CS variables have the most missing values. We will be handling these missing values in our Data Preperation section. 
+
+### Correlation and Distribution
+
+```{r fig1, fig.height=10, fig.width= 15, fig.align='center'}
+# Look at correlation between variables
+
+corr <- round(cor(baseball_train), 1)
+
+ggcorrplot(corr,
+           type="lower",
+           lab=TRUE,
+           lab_size=3,
+           method="circle",
+           colors=c("tomato2", "white", "springgreen3"),
+           title="Correlation of variables in Training Data Set",
+           ggtheme=theme_bw)
+
+```
+
+Team_Batting_H and Team_Batting_2B have the strongest positive correlation with Target_Wins. We also see that, there is a strong correlation between Team_Batting_H and Team_Batting_2B, Team_Pitching_B and TEAM_FIELDING_E. We will consider these findings on model creation as collinearity might complicate model estimation and we want to have explanotry variables to be independent from each other. We will try to avoid adding explanotry variables that are correlated to each other.
+
+Let's look at the correlations and distribution of the variables in more detail. 
+
+```{r}
+
+# Look at correlation from batting, baserunning, pitching and fielding perspective
+Batting_df <- baseball_train[c(2:7, 10)] 
+BaseRunning_df <- baseball_train[c(8:9)] 
+Pitching_df <- baseball_train[c(11:14)] 
+Fielding_df <- baseball_train[c(15:16)]
+
+```
+
+#### Batting
+
+```{r fig2, fig.height=10, fig.width= 15, fig.align='center'}
+# Batting Correlations
+chart.Correlation(Batting_df, histogram=TRUE, pch=19)
+
+```
+
+We can see that our response variable TARGET_WINS, TEAM_BATTING_H, TEAM_BATTING_2B, TEAM_BATTING_BB and TEAM_BASERUN_CS are normaly distributed. TEAM_BATTING_HR on the other hand is bimodal. 
+
+#### Baserunning
+
+
+```{r fig3, fig.height=10, fig.width= 15, fig.align='center'}
+# baserunning Correlation
+
+chart.Correlation(BaseRunning_df, histogram=TRUE, pch=19)
+
+```
+
+TEAM_BASERUN_SB is right skewed and TEAM_BATTING_SO is bimodal. 
+
+#### Pitching
+
+```{r fig4, fig.height=10, fig.width= 15, fig.align='center'}
+#pitching correlations
+chart.Correlation(Pitching_df, histogram=TRUE, pch=19)
+
+```
+
+TEAM_BATTING_HBP seems to be normally distributed however we shouldnt forget that we have a lot of missing values in this variable. 
+
+```{r fig5, fig.height=10, fig.width= 15, fig.align='center'}
+# fielding correlations
+chart.Correlation(Fielding_df, histogram=TRUE, pch=19)
+
+
+
+```
+
+
+Let's also look at the outliers and skewness for each varibale. 
+
+### Outliers and Skewness
+
+```{r fig6, fig.height=10, fig.width= 15, fig.align='center'}
+par(mfrow=c(3,3))
+datasub_1 <- melt(baseball_train)
+suppressWarnings(ggplot(datasub_1, aes(x= "value", y=value)) + 
+                   geom_boxplot(fill='lightblue') + facet_wrap(~variable, scales = 'free') )
+
+
+```
+
+Based on the boxplot we created, TEAM_FIELDING_DP, TEAM_PITCHING_HR, TEAM_BATTING_HR and TEAM_BATTING_SO seem to have the least amount of outliers. 
+
+```{r fig7, fig.height=10, fig.width= 15, fig.align='center'}
+par(mfrow = c(3, 3))
+datasub = melt(baseball_train) 
+suppressWarnings(ggplot(datasub, aes(x= value)) + 
+                   geom_density(fill='lightblue') + facet_wrap(~variable, scales = 'free') )
+
+
+```
+
+```{r}
+
+metastats %>%
+  filter(skew > 1) %>%
+  select(STATS, skew) %>%
+  arrange(desc(skew))
+
+
+```
+
+We can see that the most skewed variable is TEAM_PITCHING_SO. We will correct the skewed variables in our data preperation section. 
+
+
+When we are creating a linear regression model, we are looking for the fitting line with the least sum of squares, that has the small residuals with minimized squared residuals. From our correlation analysis, we can see that the explatory variable that has the strongest correlation with TARGET_WINS is TEAM_BATTING_H. Let's look at a simple model example to further expand our explaroty analysis. 
+
+### Simple Model Example
+
+```{r fig8, fig.height=5, fig.width= 15, fig.align='center'}
+# line that follows the best assocation between two variables
+
+plot_ss(x = TEAM_BATTING_H, y = TARGET_WINS, data=baseball_train, showSquares = TRUE, leastSquares = TRUE)
+
+```
+
+When we are exploring to build a linear regression, one of the first thing we do is to create a scatter plot of the response and explanatory variable. 
+
+```{r fig9, fig.height=5, fig.width= 15, fig.align='center'}
+# scatter plot between TEAM_BATTING_H and TARGET_WINS
+
+ggplot(baseball_train, aes(x=TEAM_BATTING_H, y=TARGET_WINS))+
+  geom_point()
+
+
+```
+
+One of the conditions for least square lines or linear regression are Linearity. From the scatter plot between TEAM_BATTING_H and TARGET_WINS, we can see this condition is met. We can also create a scatterplot that shows the data points between TARGET_WINS and each variable.
+
+```{r fig10, fig.height=5, fig.width= 15, fig.align='center'}
+
+baseball_train %>%
+  gather(var, val, -TARGET_WINS) %>%
+  ggplot(., aes(val, TARGET_WINS))+
+  geom_point()+
+  facet_wrap(~var, scales="free", ncol=4)
+
+
+```
+
+As we displayed earlier, hits walks and home runs have the strongest correlations with TARGET_WINS and also meets the linearity condition. 
+
+```{r}
+# create a simple example model
+lm_sm <- lm(baseball_train$TARGET_WINS ~ baseball_train$TEAM_BATTING_H)
+summary(lm_sm)
+
+```
+
+TARET_BATTING_H has the strongest correlation with TARGET_WINS response variable, however when we create a simple model just using TARGET_BATTING_H, we can only explain 15% of the variablity. (Adjusted R-squared:  0.1508). The remainder of the varibility can be explained with selected other variables within the training dataset. 
+
+```{r fig11, fig.height=5, fig.width= 15, fig.align='center'}
+#histogram of residuals for the simple model
+hist(lm_sm$residuals)
+
+```
+
+```{r fig12, fig.height=5, fig.width= 15, fig.align='center'}
+# check for constant variability (honoscedasticity)
+
+plot(lm_sm$residuals ~ baseball_train$TEAM_BATTING_H)
+
+```
+
+We do see that the residuals are distributed normally and variability around the regression line is roughly constant. 
+
+Based on our explatory analysis, we were able to see the correlation level between the possible explanatory variables and repsonse variable TARGET_WINS. Some of the variables such as TARGET_BATTING_H has somewhat strong positive correlation, however some of the variables such as TEAM_PITCHING_BB has weak positive relationship with TARGET_WINS. We also found out, hit by the pitcher(TEAM_BATTING_HBP) and caught stealing (TEAM_BASERUN_CS) variables are missing majority of the values. Skewness and distribution analysis gave us the insights that we have some variables that are right-tailed. Considering all of these insights, we will handle missing values, correct skewness and outliers and select our explaratory variables based on correlation in order to create our regression model. 
